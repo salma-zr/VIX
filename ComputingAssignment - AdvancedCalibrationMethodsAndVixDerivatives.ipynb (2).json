@@ -1,0 +1,562 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Advanced calibration methods and VIX derivatives\n",
+    "### Master M2MO, Université Paris Cité\n",
+    "### Master 2 Probabilités et Finance, Sorbonne Université and École polytechnique\n",
+    "# Computing assignment \n",
+    "\n",
+    "### Due Date: 11:59 PM Sunday, April 12, 2026\n",
+    "\n",
+    "You should turn in the notebook on the Moodle course website. You are expected to work in groups of 3 preferably, or possibly groups of 2.\n",
+    "\n",
+    "Please comment your code properly.\n",
+    "\n",
+    "Before you turn in the notebook, press the \"Run all cells\" button in the toolbar, and make sure all the calculation results and graphs are produced correctly in a reasonable time frame, and then save the notebook under the name ComputingAssignmentACMVix-FirstName1LastName1-FirstName2LastName2-FirstName3LastName3.ipynb"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "<h3 style=\"color:deepskyblue\">1. The Particle Method for Smile Calibration</h3>\n",
+    "\n",
+    "Consider the stochastic local volatility (SLV) model\n",
+    "\n",
+    "$$\n",
+    "\\begin{array}{l}\n",
+    "dS_t = a_t l(t, S_t) S_t dW^{(1)}_t\\\\\n",
+    "a_t=\\sigma_0 e^{Y_t}\\quad\\text{where}\\quad d Y_t = -\\kappa Y_tdt+\\gamma dW^{(2)}_t\\\\\n",
+    "d \\langle W^{(1)}, W^{(2)} \\rangle_t = \\rho dt.\n",
+    "\\end{array}\n",
+    "$$\n",
+    "\n",
+    "The numerical values for the model parameters are\n",
+    "- $T = 1$.\n",
+    "- $S_0 = 100$.\n",
+    "- $\\sigma_0 = 15\\%$.\n",
+    "- $Y_0 = 0$.\n",
+    "- $\\rho = -50\\%$.\n",
+    "- $\\gamma = 50\\%$.\n",
+    "- $\\kappa = 1$.\n",
+    "\n",
+    "The goal is to find a leverage function $l(t, S)$ so that this model matches the market prices of vanilla options. For the sake of simplicity, we assume that the market implied volatility surface is flat $\\sigma_{\\textrm{Market}} \\equiv 15\\%$. In that case, we also have $\\sigma_{\\textrm{Dup}}(t,S) \\equiv 15\\%$."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Below we describe a Monte Carlo simulation scheme for the SLV model.\n",
+    "\n",
+    "First we discretize the interval $(0,T)$ into subintervals $(t_{i-1}, t_i)$, $1\\leq i\\leq n$, and set $\\Delta t_i=t_i-t_{i-1}$. \n",
+    "\n",
+    "The Ornstein-Uhlenbeck process $Y$ is explicitly solvable:\n",
+    "\\begin{equation}\n",
+    "Y_{t_i}=e^{-\\kappa\\Delta t_i}Y_{t_{i-1}}+\\int_{t_{i-1}}^{t_i}\\gamma e^{-\\kappa\\left(t_i-s\\right)}dW_s^{(2)}.\n",
+    "\\end{equation}\n",
+    "\n",
+    "Therefore for given $Y_{t_{i-1}}$, $Y_{t_i}$ is a Gaussian variable with \n",
+    "\\begin{equation}\\tag{1}\n",
+    "\\mathbb{E}\\left[\\left.Y_{t_i}\\right\\vert Y_{t_{i-1}}\\right]=e^{-\\kappa\\Delta t_i}Y_{t_{i-1}},\\quad\n",
+    "\\text{Var}\\left[\\left.Y_{t_i}\\right\\vert Y_{t_{i-1}}\\right]=\\frac{\\gamma^2}{2\\kappa}\\left(1-e^{-2\\kappa\\Delta t_i}\\right)\n",
+    "\\end{equation}\n",
+    "\n",
+    "so that paths of $Y$ can be simulated exactly.\n",
+    "\n",
+    "To simulate the spot process $S$, we use the Euler scheme:\n",
+    "$$\\log S_{t_i}-\\log S_{t_{i-1}}=-\\frac{1}{2}\\sigma_0^2e^{2Y_{t_{i-1}}}l(t_{i-1},S_{t_{i-1}})^2\\Delta t_i+\\sigma_0 e^{Y_{t_{i-1}}}l(t_{i-1},S_{t_{i-1}})\\int_{t_{i-1}}^{t_i}dW^{(1)}_t$$\n",
+    "\n",
+    "Thus for given $S_{t_{i-1}}$ and $Y_{t_{i-1}}$, $\\log S_{t_i}$ and $Y_{t_i}$ are jointly Gaussian variables with\n",
+    "\n",
+    "\\begin{equation}\\tag{2}\n",
+    "\\mathbb{E}\\left[\\left.\\log S_{t_i}\\right\\vert S_{t_{i-1}},Y_{t_{i-1}}\\right]=\\log S_{t_{i-1}}-\\frac{1}{2}\\sigma_0^2e^{2Y_{t_{i-1}}}\\Delta t_i,\\quad\\text{Var}\\left[\\left.\\log S_{t_i}\\right\\vert S_{i_{i-1}}, Y_{t_{i-1}}\\right]=\\sigma_0^2e^{2Y_{t_{i-1}}}l(t_{i-1},S_{t_{i-1}})^2\\Delta t_i\n",
+    "\\end{equation}\n",
+    "\n",
+    "\\begin{equation}\\tag{3}\n",
+    "\\text{Cov}\\left[\\left.Y_{t_i},\\log S_{t_i}\\right\\vert S_{t_{i-1}}, Y_{t_{i-1}}\\right]=\\sigma_0 e^{Y_{t_{i-1}}}l(t_{i-1},S_{t_{i-1}})\\frac{\\gamma\\rho}{\\kappa}\\left(1-e^{-\\kappa\\Delta t_i}\\right)\n",
+    "\\quad\\text{or}\\quad\n",
+    "\\text{Corr}\\left[\\left.Y_{t_i},\\log S_{t_i}\\right\\vert S_{t_{i-1}}, Y_{t_{i-1}}\\right]=\\rho\\sqrt{\\frac{2(1-e^{-\\kappa\\Delta t_i})}{\\kappa\\Delta t_i(1+e^{-\\kappa\\Delta t_i})}}\n",
+    "\\end{equation}\n",
+    "\n",
+    "Over the time interval $[t_{i-1}, t_i]$, we can advance $\\log S$ and $Y$ by generating Gaussian variables $\\log S_{t_i}$ and $Y_{t_i}$ using equations (1)-(3). That is,\n",
+    "\n",
+    "\\begin{align}\n",
+    "\\log S_{t_i} &= \\log S_{t_{i-1}}-\\frac{1}{2}\\sigma_0^2e^{2Y_{t_{i-1}}}l(t_{i-1},S_{t_{i-1}})^2\\Delta t_i+\\sigma_0e^{Y_{t_{i-1}}}l(t_{i-1},S_{t_{i-1}})\\sqrt{\\Delta t_i}\\left(\\sqrt{1-\\bar{\\rho}^2}Z_1+\\bar{\\rho}Z_2\\right),\\quad\\text{where }\\bar{\\rho}=\\rho\\sqrt{\\frac{2(1-e^{-\\kappa\\Delta t_i})}{\\kappa\\Delta t_i(1+e^{-\\kappa\\Delta t_i})}}\\\\\n",
+    "Y_{t_i} &= e^{-\\kappa\\Delta t_i}Y_{t_{i-1}}+\\gamma\\sqrt{\\frac{1-e^{-2\\kappa\\Delta t_i}}{2\\kappa}}Z_2\n",
+    "\\end{align}\n",
+    "where $Z_1$ and $Z_2$ are independent standard normal variables."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "<b>(a).</b> Implementation of the Particle Method.\n",
+    "- Implement the particle method studied in class to find the leverage function $l$. We suggest that for the kernel regression you use the quartic kernel\n",
+    "\n",
+    "$$\\delta(x)=(x+1)^2(1-x)^2\\quad\\text{for }-1\\leq x\\leq 1\\quad\\text{and}\\quad0\\quad\\text{ elsewhere}$$\n",
+    "\n",
+    "together with the bandwidth \n",
+    "\n",
+    "$$h = \\kappa \\sigma_{\\mathrm{Market}} S_0 \\sqrt{\\max(t_k,0.15)}N^{-0.2}$$\n",
+    "\n",
+    "at discretization date $t_k$. We recall that the rescaled kernel is \n",
+    "\n",
+    "$$ \\delta_h(x) = \\frac{1}{h}\\delta\\left(\\frac{x}{h}\\right). $$\n",
+    "\n",
+    "Make sure to fine-tune the dimensionless bandwidth parameter $\\kappa$. Its order of magnitude is 1.0. Use $\\Delta t = 1/100$, $N=10,000$ paths. Note: In class, we described an acceleration technique that involves sorting the \"particles\" $(S_{t_k},a_{t_k})$ according to the spot value $S_{t_k}$. Since the kernel we have chosen has compact support and is fairly inexpensive to evaluate, you may ignore this acceleration technique here. This means that each estimation of a conditional expectation $\\mathbb{E}\\left[\\left.a_{t_k}^2\\right\\vert S_{t_k}=x\\right]$ (for $x$ in a grid $G_{t_k}$ of spot values) involves the ratio of two sums of $N$ terms each. For the minimum and maximum values of $G_{t_k}$, take the 0.1% and 99.9% quantiles of the risk-neutral distribution of $S$ at $t_k$, i.e., since the smile is flat at $\\sigma_{\\textrm{Market}}$, of the distribution of $S_0\\exp(\\sigma_{\\textrm{Market}}\\sqrt{t_k}G - \\frac12 \\sigma_{\\textrm{Market}}^2 t_k)$, with $G$ a standard Gaussian random variable. We suggest that the grid $G_{t_k}$ contain 30 equally spaced spot values.\n",
+    "\n",
+    "- Check that the resulting model is indeed calibrated to the market implied volatilities $\\sigma_{\\textrm{Market}} \\equiv 15\\%$. To this end, compute estimates of the call prices (maturity $T=1$) in the calibrated model for strikes $70, 80, 90, 100, 110, 120, 130, 140$, and invert the Black-Scholes formula to get the corresponding estimation of the implied volatilities $\\hat\\sigma(T,K)$. To estimate the call prices in the calibrated model, simulate a new set of independent paths with the calibrated leverage function $l$ and $N_2 = 100,000$ paths. For the inversion of the Black-Scholes formula, you can use the function <code>blackscholes_impv</code> provided below.\n",
+    "\n",
+    "<b>(b).</b> Fix the spot-vol correlation $\\rho = 0\\%$ and mean reversion $\\kappa=1$. We study the impact of volatility of volatility $\\gamma$ on the smile in the pure stochastic volatility model and calibrated leverage function in the SLV model. Perform the following tasks with various values of $\\gamma$. Suggested values of $\\gamma$: $0\\%$, $25\\%$, $50\\%$, $75\\%$.\n",
+    "- Recalibrate the leverage function $l(t,S)$ for each $\\gamma$, and plot the calibrated leverage function $l(t, S)$ as a function of the spot value $S$ for a fixed maturity, e.g., $t = T$ with various values of $\\gamma$ in the same graph. Comment on the dependence of the shape of the leverage function on $\\gamma$.\n",
+    "- Plot the corresponding smile at maturity $T$ for the pure stochastic volatility model (set the leverage function $l \\equiv 1$) with the various values of $\\gamma$ in the same graph. Comment on the dependence of the shape of the smile on $\\gamma$.\n",
+    "\n",
+    "<b>(c).</b> Fix the volatility of volatility $\\gamma = 50\\%$ and mean reversion $\\kappa=1$. We study the impact of spot-vol correlation $\\rho$ on the smile in the pure stochastic volatility model and calibrated leverage function in the SLV model. Perform the following tasks with various values of $\\rho$. Suggested values of $\\rho$: $-50\\%$, $0\\%$, $50\\%$.\n",
+    "- Recalibrate the leverage function $l(t,S)$ for each $\\rho$, and plot the calibrated leverage function $l(t, S)$ as a function of the spot value $S$ for a fixed maturity, e.g., $t = T$ with various values of $\\rho$ in the same graph. Comment on the dependence of the shape of the leverage function on $\\rho$.\n",
+    "- Plot the corresponding smile at maturity $T$ for the pure stochastic volatility model (set the leverage function $l \\equiv 1$) with the various values of $\\rho$ in the same graph. Comment on the dependence of the shape of the smile on $\\rho$.\n",
+    "\n",
+    "<b>(d).</b> Fix the spot-vol correlation $\\rho = 0\\%$ and volatility of volatility $\\gamma = 50\\%$. We study the impact of mean reversion $\\kappa$ on the smile in the pure stochastic volatility model and calibrated leverage function in the SLV model. Perform the following tasks with various values of $\\kappa$. Suggested values of $\\kappa$: $0.1$, $1$, $10$.\n",
+    "- Recalibrate the leverage function $l(t,S)$ for each $\\gamma$, and plot the calibrated leverage function $l(t, S)$ as a function of the spot value $S$ for a fixed maturity, e.g., $t = T$ with various values of $\\gamma$ in the same graph. Comment on the dependence of the shape of the leverage function on $\\kappa$.\n",
+    "- Plot the corresponding smile at maturity $T$ for the pure stochastic volatility model (set the leverage function $l \\equiv 1$) with the various values of $\\kappa$ in the same graph. Comment on the dependence of the shape of the smile on $\\kappa$.\n",
+    "\n",
+    "<b>(e).</b> Consider the forward-starting call spread with payoff\n",
+    "\\begin{equation*}\n",
+    "50 \\left(\\left( \\frac{S_{T_2}}{S_{T_1}}-0.99 \\right)_+ - \\left( \\frac{S_{T_2}}{S_{T_1}}-1.01 \\right)_+\\right)\n",
+    "\\end{equation*}\n",
+    "with $T_1 = T - \\frac{1}{12}$, $T_2 = T$. Use $\\gamma = 100\\%$, $\\rho = -80\\%$ and $\\kappa=4$. Compare the prices of this option in the Black-Scholes model with volatility 15% and in the calibrated SLV model. Comment on the result. Why is it of interest to use stochastic local volatility models for pricing derivatives?"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def blackscholes_price(K, T, S, vol, r=0, q=0, callput='call'):\n",
+    "    \"\"\"Compute the call/put option price in Black-Scholes model\n",
+    "    \n",
+    "    Parameters\n",
+    "    ----------\n",
+    "    K: scalar or array_like\n",
+    "        The strike of the option.\n",
+    "    T: scalar or array_like\n",
+    "        The maturity of the option.\n",
+    "    S: scalar or array_like\n",
+    "        The spot price of the underlying security.\n",
+    "    vol: scalar or array_like\n",
+    "        The implied Black-Scholes volatility.\n",
+    "    callput: str\n",
+    "        Must be either 'call' or 'put'\n",
+    "\n",
+    "    Returns\n",
+    "    -------\n",
+    "    price: scalar or array_like\n",
+    "        The price of the option.\n",
+    "\n",
+    "    Examples\n",
+    "    --------\n",
+    "    >>> blackscholes_price(95, 0.25, 100, 0.2, r=0.05, callput='put')\n",
+    "    1.5342604771222823\n",
+    "    \"\"\"\n",
+    "    F = S*np.exp((r-q)*T)\n",
+    "    w = vol**2*T\n",
+    "    d1 = (np.log(F/K)+0.5*w)/np.sqrt(w)\n",
+    "    d2 = d1 - np.sqrt(w)\n",
+    "    callput = callput.lower()\n",
+    "    if callput == 'call':\n",
+    "        opttype = 1\n",
+    "    elif callput == 'put':\n",
+    "        opttype = -1\n",
+    "    else:\n",
+    "        raise ValueError('The value of callput must be either \"call\" or \"put\".')\n",
+    "    price = (opttype*F*norm.cdf(opttype*d1)-opttype*K*norm.cdf(opttype*(d2)))*np.exp(-r*T)\n",
+    "    return price"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "array(0.20654803)"
+      ]
+     },
+     "execution_count": 3,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# all inputs must be scalar\n",
+    "def blackscholes_impv_scalar(K, T, S, value, r=0, q=0, callput='call', tol=1e-6, maxiter=500):\n",
+    "    \"\"\"Compute implied vol in Black-Scholes model\n",
+    "    \n",
+    "    Parameters\n",
+    "    ----------\n",
+    "    K: scalar\n",
+    "        The strike of the option.\n",
+    "    T: scalar\n",
+    "        The maturity of the option.\n",
+    "    S: scalar\n",
+    "        The spot price of the underlying security.\n",
+    "    value: scalar\n",
+    "        The value of the option\n",
+    "    callput: str\n",
+    "        Must be either 'call' or 'put'\n",
+    "\n",
+    "    Returns\n",
+    "    -------\n",
+    "    vol: scalar\n",
+    "        The implied vol of the option.\n",
+    "    \"\"\"\n",
+    "    if (K <= 0) or (T <= 0):\n",
+    "        return np.nan\n",
+    "    F = S*np.exp((r-q)*T)\n",
+    "    K = K/F\n",
+    "    value = value*np.exp(r*T)/F\n",
+    "    callput = callput.lower()\n",
+    "    if callput not in ['call', 'put']:\n",
+    "        raise ValueError('The value of \"callput\" must be either \"call\" or \"put\"')\n",
+    "    opttype = 1 if callput == 'call' else -1\n",
+    "    value -= max(opttype * (1 - K), 0)\n",
+    "    if value < 0:\n",
+    "        return np.nan\n",
+    "    if (value == 0):\n",
+    "        return 0\n",
+    "    j = 1\n",
+    "    p = np.log(K)\n",
+    "    if K >= 1:\n",
+    "        x0 = np.sqrt(2 * p)\n",
+    "        x1 = x0 - (0.5 - K * norm.cdf(-x0) - value) * np.sqrt(2*np.pi)\n",
+    "        while (abs(x0 - x1) > tol*np.sqrt(T)) and (j < maxiter):\n",
+    "            x0 = x1\n",
+    "            d1 = -p/x1+0.5*x1\n",
+    "            x1 = x1 - (norm.cdf(d1) - K*norm.cdf(d1-x1)-value)*np.sqrt(2*np.pi)*np.exp(0.5*d1**2)\n",
+    "            j += 1\n",
+    "        return x1 / np.sqrt(T)\n",
+    "    else:\n",
+    "        x0 = np.sqrt(-2 * p)\n",
+    "        x1 = x0 - (0.5*K-norm.cdf(-x0)-value)*np.sqrt(2*np.pi)/K\n",
+    "        while (abs(x0-x1) > tol*np.sqrt(T)) and (j < maxiter):\n",
+    "            x0 = x1\n",
+    "            d1 = -p/x1+0.5*x1\n",
+    "            x1 = x1-(K*norm.cdf(x1-d1)-norm.cdf(-d1)-value)*np.sqrt(2*np.pi)*np.exp(0.5*d1**2)\n",
+    "            j += 1\n",
+    "        return x1/np.sqrt(T)\n",
+    "\n",
+    "# vectorized version\n",
+    "blackscholes_impv = np.vectorize(blackscholes_impv_scalar, excluded={'callput', 'tol', 'maxiter'})\n",
+    "\n",
+    "# Example\n",
+    "blackscholes_impv(K=95, T=0.25, S=100, value=7, callput='call')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def quartic_kernel(x):\n",
+    "    x = np.clip(x, -1, 1)\n",
+    "    return (x+1)**2*(1-x)**2"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "<h3 style=\"color:deepskyblue\">2. Pricing SPX options, VIX futures and VIX options in the two-factor Bergomi model</h3>\n",
+    "\n",
+    "The objective of this second part of the computing assignment is to price SPX options, VIX futures, and VIX options in the two-factor Bergomi model\n",
+    "\n",
+    "\\begin{eqnarray}\n",
+    "S_t &=& S_0 \\exp\\left(\\int_0^t \\sqrt{\\xi_s^s}dW_s - \\frac{1}{2}\\int_0^t \\xi_s^s ds \\right) \\\\\n",
+    "    X_t^j &=& e^{-k_j t} \\int_0^t e^{k_j s} \\, dZ^j_s, \\qquad j\\in\\{1,2\\} \\\\\n",
+    "\\alpha_\\theta &=& \\left( (1-\\theta)^2 +\\theta^2+2 \\rho_{12}\\theta(1-\\theta)\\right)^{-1/2} \\\\\n",
+    "x_t^u &=& \\alpha_\\theta \\left((1-\\theta)e^{-k_1(u-t)}X_t^1 + \\theta e^{-k_2(u-t)}X_t^2 \\right) \\\\\n",
+    "\\xi_t^u &=& \\xi_0^u g^u(t,x_t^u) \\;\\; = \\;\\;\\xi_0^u f^u(t,X_t^1,X_t^2) \\\\\n",
+    "g^u(t,x) &=& \\exp\\left(\\omega x - \\frac{\\omega^2}{2}\\chi(t,u)\\right) \\\\\n",
+    "\\chi(t,u) &=& \\alpha_\\theta^2\\left( (1-\\theta)^2e^{-2k_1(u-t)} \\text{Var}(X_t^1) + \\theta^2e^{-2k_2(u-t)} \\text{Var}(X_t^2) \\right. \\\\\n",
+    "&& \\left. + 2\\theta(1-\\theta)e^{-(k_1+k_2)(u-t)}\\text{Cov}(X_t^1,X_t^2)\\right) \\\\\n",
+    "d\\langle W,Z^1\\rangle_t &=& \\rho_{S1} dt \\\\\n",
+    "d\\langle W,Z^2\\rangle_t &=& \\rho_{S2} dt \\\\\n",
+    "d\\langle Z^1,Z^2\\rangle_t &=& \\rho_{12} dt \\\\\n",
+    "\\end{eqnarray}"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import numpy as np\n",
+    "\n",
+    "from scipy.stats import norm\n",
+    "import matplotlib.pyplot as plt\n",
+    "\n",
+    "plt.rcParams[\"figure.figsize\"] = (4.8, 3.2)\n",
+    "\n",
+    "from math import exp, sqrt, log, pi, sin, cos, atan, tan"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from py_vollib.black_scholes.implied_volatility import implied_volatility\n",
+    "vec_find_vol_rat = np.vectorize(implied_volatility)   # a better imp vol estimator based on P Jäckel Let's be rational"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Pricing SPX options"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "1. By doing a Cholesky decomposition, give a necessary and sufficient condition (*) on $\\rho_{S1},\\rho_{S2},\\rho_{12}$ so that\n",
+    "$$\\begin{bmatrix}1 & \\rho_{S1} & \\rho_{S2}\\\\ \\rho_{S1} & 1 & \\rho_{12} \\\\ \\rho_{S2} & \\rho_{12} & 1\\end{bmatrix}$$\n",
+    "is a correlation matrix."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Below we describe a Monte Carlo simulation scheme for the two-factor Bergomi model.\n",
+    "\n",
+    "First we discretize the interval $(0,T)$ into subintervals $(t_{i-1}, t_i)$, $1\\leq i\\leq n$, and set $\\Delta t_i=t_i-t_{i-1}$. \n",
+    "\n",
+    "The Ornstein-Uhlenbeck process $X^j$ is explicitly solvable:\n",
+    "\\begin{equation}\n",
+    "X^j_{t_i}=e^{-k_j\\Delta t_i}X^j_{t_{i-1}}+\\int_{t_{i-1}}^{t_i} e^{-k_j\\left(t_i-s\\right)}dZ_s^{j}.\n",
+    "\\end{equation}\n",
+    "so that paths of $X^j$ can be simulated exactly.\n",
+    "\n",
+    "To simulate the spot process $S$, we use the Euler scheme on the log (by abuse of notation, below, S will denote the Euler scheme, not the true asset price process):\n",
+    "$$\\log S_{t_i}-\\log S_{t_{i-1}}=-\\frac{1}{2}\\xi_{t_{i-1}}^{t_{i-1}}\\Delta t_i+\\sqrt{\\xi_{t_{i-1}}^{t_{i-1}}}\\int_{t_{i-1}}^{t_i}dW_t$$\n",
+    "\n",
+    "Thus given $(S_{t_{i-1}},X^1_{t_{i-1}},X^2_{t_{i-1}})$, $(\\log S_{t_i},X^1_{t_i},X^2_{t_i})$ is a Gaussian vector.\n",
+    "\n",
+    "2. Compute the mean vector and covariance matrix of this Gaussian vector.\n",
+    "\n",
+    "This is what we will use to iteratively simulate $(\\log S_{t_i},X^1_{t_i},X^2_{t_i})$.\n",
+    "\n",
+    "3. Fill in the blanks in the code below.\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def two_factor_bergomi_mc(vov,k_1,k_2,theta,rho_sx1,rho_sx2,rho_x1x2,xi_0,n_steps,N_sims):\n",
+    "    #xi_0 is assumed costant: just a number\n",
+    "    #vov is the vol of variance omega\n",
+    "\n",
+    "    tt = np.linspace(0., T, n_steps + 1)\n",
+    "    dt = T/n_steps\n",
+    "    \n",
+    "    def covar(k_1,k_2,rho,t): \n",
+    "\n",
+    "        return rho*(1-np.exp(-(k_1+k_2)*t))/(k_1+k_2)\n",
+    "        \n",
+    "    def chi_func(k_1,k_2,theta,rho_x1x2,alpha,t): # computes chi(t,t)\n",
+    "        chi = (1-theta)**2*covar(k_1,k_1,1.0,t)+theta**2*covar(k_2,k_2,1.0,t)+\\\n",
+    "        2*theta*(1-theta)*covar(k_1,k_2,rho_x1x2,t)\n",
+    "    \n",
+    "        return alpha**2*chi\n",
+    "    \n",
+    "    alpha = 1/sqrt((1-theta)**2+theta**2+2*rho_x1x2*theta*(1-theta))\n",
+    "    chi = chi_func(k_1,k_2,theta,rho_x1x2,alpha,tt)\n",
+    "    \n",
+    "    X_1 = np.zeros((n_steps+1,N_sims))\n",
+    "    X_2 = np.zeros((n_steps+1,N_sims))\n",
+    "    X = np.zeros((n_steps+1,N_sims))\n",
+    "    inst_vol = np.zeros((n_steps+1,N_sims))\n",
+    "    logS = np.zeros((n_steps+1,N_sims))\n",
+    "    logS[0] = log(S_0)\n",
+    "    inst_vol[0] = sqrt(xi_0)\n",
+    "\n",
+    "    for i in range(n_steps):\n",
+    "        z1, z2, z3 = np.random.normal(size=(3,N_sims))\n",
+    "        X_1[i+1] = X_1[i]*np.exp(-k_1*dt) + sqrt(covar(k_1,k_1,1,dt))*z1\n",
+    "        X_2[i+1] = ...\n",
+    "        X[i+1] = alpha*((1-theta)*X_1[i+1] + theta*X_2[i+1])\n",
+    "        inst_vol[i+1] = sqrt(xi_0)*np.exp(vov*X[i+1]/2-vov**2/4*chi[i+1])\n",
+    "    \n",
+    "        logS[i+1] = ...\n",
+    "        \n",
+    "    return np.exp(logS[-1])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "vov = 4 \n",
+    "k_1 = 20\n",
+    "k_2 = 1.5\n",
+    "theta = 0.75\n",
+    "xi_0 = 0.025\n",
+    "rho_sx1,rho_sx2,rho_x1x2 = -0.8, -0.7, 0.7\n",
+    "T = 1"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "S_0 = 100"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "n_steps = 500\n",
+    "N_sims = 100000"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ST = two_factor_bergomi_mc(vov,k_1,k_2,theta,rho_sx1, rho_sx2, rho_x1x2,xi_0,n_steps,N_sims)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "lm = np.linspace(-0.6,0.4,100) # log-moneyness\n",
+    "strike_array = np.exp(lm)*S_0"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "opt_price = np.average(np.maximum(ST-strike_array.reshape(-1,1),0),axis=1)\n",
+    "iv = vec_find_vol_rat(opt_price, S_0, strike_array, T, 0, 'c')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "plt.plot(strike_array,opt_price)\n",
+    "plt.grid()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "plt.plot(lm,iv)\n",
+    "plt.grid()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "4. Vary the parameters vov, k_1, k_2, theta, rho_sx1, rho_sx2, rho_x1x2 and T and comment on the impact on the SPX smile."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Pricing VIX futures and VIX options"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "5. Prove that $(\\xi_t^u)_{t\\in[0,u]}$ is a martingale in $t$, for fixed $u>0$.\n",
+    "Denote $\\sigma_t^2 = \\xi_t^t$. Prove that $\\xi_T^u = \\mathbb{E}[\\sigma_u^2|\\mathcal{F}_T]$ and deduce that\n",
+    "$$\\text{VIX}^2_T = \\frac{1}{\\tau}\\int_T^{T+\\tau} \\xi_T^u du$$\n",
+    "where $\\tau=30/365$ (30 days). Prove that, as a result, in the two-factor Bergomi model, there exists a function $\\psi$ such that\n",
+    "$$\\text{VIX}_T = \\psi(T,X_T^1,X_T^2)$$\n",
+    "and write down the function $\\psi$.\n",
+    "\n",
+    "Since the vector $(X_T^1,X_T^2)$ is Gaussian, the price $\\mathbb{E}[h(\\text{VIX}_T)]$ of a VIX option $h(\\text{VIX}_T)$ can very efficiently be estimated by a Gauss-Hermite quadrature; see \n",
+    "https://en.wikipedia.org/wiki/Gaussian_quadrature and \n",
+    "https://numpy.org/doc/stable/reference/generated/numpy.polynomial.hermite.hermgauss.html\n",
+    "\n",
+    "6. Using this method, price a VIX future maturing at $T$ (choose $T=1/12$ (1 month), $2/12$, $3/12$, $4/12$) and VIX call options with the same maturity; take strikes with log-moneyness from -0.2 to 2.5, based on the price of the VIX future. Vary the number of points in the quadrature: 10, 20, 30, 50. What do you observe? Using 50 points in the quadrature, plot the VIX smile, using the Black formula (with spot value the value of the VIX future) to compute the VIX implied volatilities.\n",
+    "\n",
+    "7. Comment on the impact of the vol-of-vol on the price of the VIX future and on the VIX implied volatilities. In the one-factor Bergomi model ($\\theta=0$), comment on the impact of the mean reversion on the VIX implied volatilities: take $k_1 = 1,5,10,30,60,100$."
+   ]
+  }
+ ],
+ "metadata": {
+  "anaconda-cloud": {},
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.10.6"
+  },
+  "vscode": {
+   "interpreter": {
+    "hash": "aa6c944ec03cee6b295e2db2dcad4cbe366973d7c77c89887805fa4024120f6f"
+   }
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
